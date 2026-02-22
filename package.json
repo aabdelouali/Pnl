@@ -1,0 +1,14 @@
+{
+  "name": "institutional-pnl-analytics",
+  "version": "1.0.0",
+  "description": "Real-time institutional PnL analytics platform",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

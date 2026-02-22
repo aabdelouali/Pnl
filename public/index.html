@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Murex Institutional PnL Analytics</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+
+    <div class="app-shell">
+      <header class="topbar panel">
+        <div class="brand-block">
+          <span class="kicker">Institutional Analytics</span>
+          <h1>MUREX PnL Command Center</h1>
+        </div>
+
+        <div class="status-strip">
+          <div class="status-item">
+            <span>Stream</span>
+            <strong id="streamStatus" class="status-live">LIVE</strong>
+          </div>
+          <div class="status-item">
+            <span>Latency</span>
+            <strong id="latencyValue">0 ms</strong>
+          </div>
+          <div class="status-item">
+            <span>Server Time</span>
+            <strong id="serverTime">--:--:--</strong>
+          </div>
+          <div class="status-item">
+            <span>Throughput</span>
+            <strong id="throughput">-- upd/s</strong>
+          </div>
+        </div>
+      </header>
+
+      <aside class="filters panel">
+        <h2>Live Filters</h2>
+
+        <label>
+          <span>Asset Class</span>
+          <select id="assetFilter"></select>
+        </label>
+
+        <label>
+          <span>Desk</span>
+          <select id="deskFilter"></select>
+        </label>
+
+        <label>
+          <span>Trader</span>
+          <select id="traderFilter"></select>
+        </label>
+
+        <label>
+          <span>Timeframe</span>
+          <select id="timeframeFilter"></select>
+        </label>
+
+        <div class="engine-metrics">
+          <div>
+            <span>Instruments</span>
+            <strong id="metaInstruments">0</strong>
+          </div>
+          <div>
+            <span>Positions</span>
+            <strong id="metaPositions">0</strong>
+          </div>
+          <div>
+            <span>Trades/s</span>
+            <strong id="metaTradesPerSec">0</strong>
+          </div>
+          <div>
+            <span>Compute</span>
+            <strong id="metaCompute">0 ms</strong>
+          </div>
+        </div>
+      </aside>
+
+      <main class="content-grid">
+        <section class="summary-grid" id="summaryCards">
+          <article class="metric-card panel">
+            <span>Realized PnL</span>
+            <strong data-metric="realized">$0</strong>
+          </article>
+          <article class="metric-card panel">
+            <span>Unrealized PnL</span>
+            <strong data-metric="unrealized">$0</strong>
+          </article>
+          <article class="metric-card panel">
+            <span>Daily PnL</span>
+            <strong data-metric="daily">$0</strong>
+          </article>
+          <article class="metric-card panel">
+            <span>Cumulative PnL</span>
+            <strong data-metric="cumulative">$0</strong>
+          </article>
+          <article class="metric-card panel">
+            <span>Gross Exposure</span>
+            <strong data-metric="grossExposure">$0</strong>
+          </article>
+          <article class="metric-card panel">
+            <span>Net Exposure</span>
+            <strong data-metric="netExposure">$0</strong>
+          </article>
+        </section>
+
+        <section class="panel curve-panel">
+          <div class="panel-title-row">
+            <h2>Performance Curve</h2>
+            <div class="curve-legend">
+              <span class="legend-dot"></span>
+              <span>Cumulative PnL (Live)</span>
+            </div>
+          </div>
+          <canvas id="curveCanvas"></canvas>
+        </section>
+
+        <section class="panel risk-panel">
+          <div class="panel-title-row">
+            <h2>Risk Diagnostics</h2>
+          </div>
+          <div id="riskGrid" class="risk-grid"></div>
+        </section>
+
+        <section class="panel heatmap-panel">
+          <div class="panel-title-row">
+            <h2>PnL Contribution Heatmap</h2>
+            <span class="heatmap-subtitle">Desk x Asset Daily PnL</span>
+          </div>
+          <div id="heatmap" class="heatmap"></div>
+        </section>
+
+        <section class="panel contributors-panel">
+          <div class="panel-title-row">
+            <h2>Top Contributors</h2>
+          </div>
+
+          <div class="contributor-columns">
+            <div>
+              <h3>Winners</h3>
+              <ul id="winnersList"></ul>
+            </div>
+            <div>
+              <h3>Losers</h3>
+              <ul id="losersList"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel drilldown-panel">
+          <div class="panel-title-row">
+            <h2>Drill-Down Analytics</h2>
+            <input id="instrumentSearch" type="search" placeholder="Search symbol" />
+          </div>
+
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Asset</th>
+                  <th>Qty</th>
+                  <th>Daily PnL</th>
+                  <th>Cumulative PnL</th>
+                  <th>Notional</th>
+                </tr>
+              </thead>
+              <tbody id="drilldownBody"></tbody>
+            </table>
+          </div>
+
+          <div id="instrumentDetails" class="instrument-details"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
