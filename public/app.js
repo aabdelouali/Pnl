@@ -47,7 +47,14 @@ const state = {
     values: [],
     target: [],
     timestamps: [],
-    ctx: dom.curveCanvas.getContext("2d")
+    ctx: dom.curveCanvas.getContext("2d"),
+    viewport: null,
+    hover: {
+      active: false,
+      index: -1,
+      x: 0,
+      y: 0
+    }
   }
 };
 
@@ -81,6 +88,7 @@ function formatCurrency(value) {
 function setConnectionStatus(status, isLive) {
   dom.streamStatus.textContent = status;
   dom.streamStatus.classList.toggle("status-live", isLive);
+  dom.streamStatus.classList.toggle("status-down", !isLive);
 }
 
 function populateSelect(select, values) {
@@ -238,6 +246,19 @@ function pulseMetricCard(key) {
   card.classList.add("flash");
 }
 
+function metricTrendClass(value, key) {
+  if (key === "grossExposure") {
+    return "flat";
+  }
+  if (value > 0) {
+    return "up";
+  }
+  if (value < 0) {
+    return "down";
+  }
+  return "flat";
+}
+
 function renderSummary(summary) {
   for (const key of Object.keys(metricElements)) {
     const value = summary[key] || 0;
@@ -249,6 +270,12 @@ function renderSummary(summary) {
 
     element.classList.remove("positive", "negative", "neutral");
     element.classList.add(getValueClass(value));
+
+    const card = element.closest(".metric-card");
+    if (card) {
+      card.classList.remove("up", "down", "flat");
+      card.classList.add(metricTrendClass(value, key));
+    }
 
     if (previous !== undefined) {
       const delta = Math.abs(value - previous);
@@ -301,17 +328,20 @@ function renderRisk(risk, summary) {
   ];
 
   dom.riskGrid.innerHTML = rows
-    .map(
-      (row) => `
-      <div class="risk-item">
+    .map((row) => {
+      const barColor =
+        row.ratio >= 0.72 ? "var(--negative)" : row.ratio >= 0.45 ? "var(--warning)" : "var(--positive)";
+
+      return `
+      <div class="risk-item"> 
         <div class="row">
           <span class="label">${row.label}</span>
           <span class="value">${row.value}</span>
         </div>
-        <div class="risk-bar"><span style="width:${Math.round(row.ratio * 100)}%"></span></div>
+        <div class="risk-bar"><span style="width:${Math.round(row.ratio * 100)}%; background:${barColor}"></span></div>
       </div>
-    `
-    )
+    `;
+    })
     .join("");
 }
 
@@ -359,13 +389,16 @@ function renderHeatmap(heatmap) {
     for (const assetClass of columns) {
       const value = map.get(`${desk}|${assetClass}`) || 0;
       const intensity = maxAbs > 0 ? Math.abs(value) / maxAbs : 0;
-      const hue = value >= 0 ? 154 : 349;
-      const lightness = 20 + intensity * 34;
-      const alpha = 0.28 + intensity * 0.62;
-      const background = `hsla(${hue}, 74%, ${lightness}%, ${alpha})`;
+      const alpha = 0.16 + intensity * 0.72;
+      const background =
+        value >= 0 ? `rgba(0, 230, 118, ${alpha})` : `rgba(255, 77, 87, ${alpha})`;
+      const borderColor =
+        value >= 0
+          ? `rgba(0, 230, 118, ${Math.min(0.9, 0.28 + intensity * 0.58)})`
+          : `rgba(255, 77, 87, ${Math.min(0.9, 0.28 + intensity * 0.58)})`;
 
       cellsHtml.push(
-        `<div class="hm-cell ${getValueClass(value)}" style="background:${background}" title="${desk} ${assetClass}: ${formatSignedCurrency(
+        `<div class="hm-cell ${getValueClass(value)}" style="background:${background}; border-color:${borderColor}" title="${desk} ${assetClass}: ${formatSignedCurrency(
           value
         )}">${formatSignedCurrency(value)}</div>`
       );
@@ -449,6 +482,74 @@ function resizeCanvas() {
   }
 }
 
+function setCurveHoverFromPointer(event) {
+  const { viewport, values } = state.chart;
+
+  if (!viewport || !values.length) {
+    return;
+  }
+
+  const rect = dom.curveCanvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const x = (event.clientX - rect.left) * dpr;
+  const y = (event.clientY - rect.top) * dpr;
+
+  if (
+    x < viewport.leftPad ||
+    x > viewport.width - viewport.rightPad ||
+    y < viewport.topPad ||
+    y > viewport.height - viewport.bottomPad
+  ) {
+    state.chart.hover.active = false;
+    state.chart.hover.index = -1;
+    return;
+  }
+
+  const ratio = (x - viewport.leftPad) / Math.max(viewport.plotWidth, 1);
+  const rawIndex = Math.round(ratio * (values.length - 1));
+  const index = Math.min(values.length - 1, Math.max(0, rawIndex));
+
+  const pointX =
+    viewport.leftPad +
+    (index / Math.max(values.length - 1, 1)) * viewport.plotWidth;
+  const pointY =
+    viewport.topPad +
+    ((viewport.ceiling - values[index]) / Math.max(viewport.ceiling - viewport.floor, 1e-9)) *
+      viewport.plotHeight;
+
+  state.chart.hover.active = true;
+  state.chart.hover.index = index;
+  state.chart.hover.x = pointX;
+  state.chart.hover.y = pointY;
+}
+
+function clearCurveHover() {
+  state.chart.hover.active = false;
+  state.chart.hover.index = -1;
+}
+
+function bindCurveHoverEvents() {
+  dom.curveCanvas.addEventListener("pointermove", setCurveHoverFromPointer);
+  dom.curveCanvas.addEventListener("pointerleave", clearCurveHover);
+  dom.curveCanvas.addEventListener("pointercancel", clearCurveHover);
+}
+
+function drawRoundedRectPath(ctx, x, y, width, height, radius) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.arcTo(x + width, y, x + width, y + r, r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
+  ctx.lineTo(x + r, y + height);
+  ctx.arcTo(x, y + height, x, y + height - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
 function renderCurve() {
   const { ctx, values, timestamps } = state.chart;
   const canvas = dom.curveCanvas;
@@ -461,6 +562,7 @@ function renderCurve() {
 
   const width = canvas.width;
   const height = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
   const leftPad = 54;
   const rightPad = 18;
   const topPad = 20;
@@ -469,8 +571,12 @@ function renderCurve() {
   ctx.clearRect(0, 0, width, height);
 
   if (!values.length) {
-    ctx.fillStyle = "rgba(142, 163, 204, 0.6)";
-    ctx.font = `${12 * (window.devicePixelRatio || 1)}px IBM Plex Mono, monospace`;
+    state.chart.viewport = null;
+    state.chart.hover.active = false;
+    state.chart.hover.index = -1;
+
+    ctx.fillStyle = "rgba(173, 188, 177, 0.65)";
+    ctx.font = `${12 * dpr}px IBM Plex Mono, monospace`;
     ctx.fillText("Waiting for stream...", 26, 28);
     return;
   }
@@ -481,14 +587,33 @@ function renderCurve() {
   const floor = minValue - spread * 0.12;
   const ceiling = maxValue + spread * 0.12;
 
+  const isPositiveCurve = values[values.length - 1] >= values[0];
+  const lineColor = isPositiveCurve ? "#00e676" : "#ff4d57";
+  const glowColor = isPositiveCurve ? "rgba(0, 230, 118, 0.75)" : "rgba(255, 77, 87, 0.75)";
+  const fillTop = isPositiveCurve ? "rgba(0, 230, 118, 0.3)" : "rgba(255, 77, 87, 0.3)";
+  const fillBottom = isPositiveCurve ? "rgba(0, 230, 118, 0.03)" : "rgba(255, 77, 87, 0.03)";
+
   const plotWidth = width - leftPad - rightPad;
   const plotHeight = height - topPad - bottomPad;
 
-  const xAt = (index) => leftPad + (index / (values.length - 1)) * plotWidth;
-  const yAt = (value) => topPad + ((ceiling - value) / (ceiling - floor)) * plotHeight;
+  state.chart.viewport = {
+    width,
+    height,
+    leftPad,
+    rightPad,
+    topPad,
+    bottomPad,
+    plotWidth,
+    plotHeight,
+    floor,
+    ceiling
+  };
+
+  const xAt = (index) => leftPad + (index / Math.max(values.length - 1, 1)) * plotWidth;
+  const yAt = (value) => topPad + ((ceiling - value) / Math.max(ceiling - floor, 1e-9)) * plotHeight;
 
   ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(130, 160, 214, 0.2)";
+  ctx.strokeStyle = "rgba(103, 117, 108, 0.25)";
   for (let i = 0; i < 5; i += 1) {
     const y = topPad + (i / 4) * plotHeight;
     ctx.beginPath();
@@ -498,7 +623,7 @@ function renderCurve() {
   }
 
   ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(130, 160, 214, 0.18)";
+  ctx.strokeStyle = "rgba(97, 111, 102, 0.3)";
   ctx.beginPath();
   ctx.moveTo(leftPad, topPad);
   ctx.lineTo(leftPad, height - bottomPad);
@@ -520,8 +645,8 @@ function renderCurve() {
   area.closePath();
 
   const fillGradient = ctx.createLinearGradient(0, topPad, 0, height - bottomPad);
-  fillGradient.addColorStop(0, "rgba(53, 204, 255, 0.35)");
-  fillGradient.addColorStop(1, "rgba(53, 204, 255, 0.02)");
+  fillGradient.addColorStop(0, fillTop);
+  fillGradient.addColorStop(1, fillBottom);
   ctx.fillStyle = fillGradient;
   ctx.fill(area);
 
@@ -536,8 +661,8 @@ function renderCurve() {
     }
   });
 
-  ctx.strokeStyle = "#35ccff";
-  ctx.shadowColor = "rgba(53, 204, 255, 0.8)";
+  ctx.strokeStyle = lineColor;
+  ctx.shadowColor = glowColor;
   ctx.shadowBlur = 10;
   ctx.lineWidth = 2.2;
   ctx.stroke(line);
@@ -545,13 +670,86 @@ function renderCurve() {
 
   const latestX = xAt(values.length - 1);
   const latestY = yAt(values[values.length - 1]);
-  ctx.fillStyle = "#7df5ff";
+  ctx.fillStyle = lineColor;
   ctx.beginPath();
   ctx.arc(latestX, latestY, 3.8, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.font = `${11 * (window.devicePixelRatio || 1)}px IBM Plex Mono, monospace`;
-  ctx.fillStyle = "rgba(195, 214, 247, 0.9)";
+  const hover = state.chart.hover;
+  if (hover.active && hover.index >= 0 && hover.index < values.length) {
+    const hoverValue = values[hover.index];
+    const hoverTime = timestamps[hover.index];
+    const hoverColor = hoverValue >= 0 ? "#00e676" : "#ff4d57";
+
+    ctx.save();
+
+    ctx.setLineDash([4 * dpr, 4 * dpr]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(172, 188, 177, 0.45)";
+    ctx.beginPath();
+    ctx.moveTo(hover.x, topPad);
+    ctx.lineTo(hover.x, height - bottomPad);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = hoverColor;
+    ctx.beginPath();
+    ctx.arc(hover.x, hover.y, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    const valueText = formatSignedCurrency(hoverValue);
+    const timeText = Number.isFinite(hoverTime)
+      ? new Date(hoverTime).toLocaleTimeString("en-US", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        })
+      : "--:--:--";
+
+    const fontSize = 11 * dpr;
+    const lineHeight = 14 * dpr;
+    const paddingX = 10 * dpr;
+    const paddingY = 8 * dpr;
+
+    ctx.font = `${fontSize}px IBM Plex Mono, monospace`;
+    const textWidth = Math.max(ctx.measureText(valueText).width, ctx.measureText(timeText).width);
+    const boxWidth = textWidth + paddingX * 2;
+    const boxHeight = lineHeight * 2 + paddingY * 2 - 2 * dpr;
+
+    let boxX = hover.x + 12 * dpr;
+    let boxY = hover.y - boxHeight - 10 * dpr;
+
+    if (boxX + boxWidth > width - rightPad) {
+      boxX = hover.x - boxWidth - 12 * dpr;
+    }
+    if (boxX < leftPad) {
+      boxX = leftPad + 2 * dpr;
+    }
+    if (boxY < topPad + 2 * dpr) {
+      boxY = hover.y + 10 * dpr;
+    }
+    if (boxY + boxHeight > height - bottomPad) {
+      boxY = height - bottomPad - boxHeight - 2 * dpr;
+    }
+
+    drawRoundedRectPath(ctx, boxX, boxY, boxWidth, boxHeight, 8 * dpr);
+    ctx.fillStyle = "rgba(1, 3, 2, 0.95)";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = hoverColor;
+    ctx.stroke();
+
+    ctx.fillStyle = hoverColor;
+    ctx.fillText(valueText, boxX + paddingX, boxY + paddingY + lineHeight - 3 * dpr);
+    ctx.fillStyle = "rgba(194, 206, 198, 0.95)";
+    ctx.fillText(timeText, boxX + paddingX, boxY + paddingY + lineHeight * 2 - 3 * dpr);
+
+    ctx.restore();
+  }
+
+  ctx.font = `${11 * dpr}px IBM Plex Mono, monospace`;
+  ctx.fillStyle = "rgba(201, 214, 204, 0.92)";
   ctx.fillText(formatSignedCurrency(maxValue), 8, topPad + 6);
   ctx.fillText(formatSignedCurrency(minValue), 8, height - bottomPad);
 
@@ -568,13 +766,14 @@ function renderCurve() {
       minute: "2-digit"
     });
 
-    ctx.fillStyle = "rgba(140, 164, 211, 0.8)";
+    ctx.fillStyle = "rgba(151, 166, 156, 0.84)";
     ctx.fillText(leftLabel, leftPad, height - 8);
 
     const rightWidth = ctx.measureText(rightLabel).width;
     ctx.fillText(rightLabel, width - rightPad - rightWidth, height - 8);
   }
 }
+
 
 function animateCurve() {
   const current = state.chart.values;
@@ -630,6 +829,7 @@ function renderSnapshot(snapshot) {
 function start() {
   bootstrapFilters();
   bindFilterEvents();
+  bindCurveHoverEvents();
   connectSocket();
   animateCurve();
   window.addEventListener("resize", renderCurve);
